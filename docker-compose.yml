@@ -1,0 +1,64 @@
+# One command starts the whole platform:  docker compose up --build
+#   MVC website  -> http://localhost:8080
+#   REST API     -> http://localhost:8081/swagger
+#   Azurite      -> local Azure Blob Storage emulator (images are stored here by default)
+#
+# To use REAL Azure Blob Storage instead, copy .env.example to .env and set
+# BLOB_CONNECTION_STRING and BLOB_PUBLIC_BASE_URL (see README).
+name: raceday
+
+services:
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SA_PASSWORD:-RaceDay_Str0ng_Pass1}"
+    volumes:
+      - sqldata:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q \"SELECT 1\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    command: "azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data --skipApiVersionCheck"
+    ports:
+      - "10000:10000"
+    volumes:
+      - azuritedata:/data
+
+  api:
+    build: ./src/RaceDay.Api
+    depends_on:
+      sql:
+        condition: service_healthy
+      azurite:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      ASPNETCORE_URLS: "http://+:8081"
+      ConnectionStrings__RaceDayDb: "Server=sql,1433;Database=RaceDayDB;User Id=sa;Password=${SA_PASSWORD:-RaceDay_Str0ng_Pass1};TrustServerCertificate=True;MultipleActiveResultSets=true"
+      Database__AutoMigrate: "true"
+      Database__SeedDemoData: "true"
+      BlobStorage__ContainerName: "raceday-images"
+      BlobStorage__ConnectionString: "${BLOB_CONNECTION_STRING:-DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UZtHzXxgg==;BlobEndpoint=http://azurite:10000/devstoreaccount1;}"
+      BlobStorage__PublicBaseUrl: "${BLOB_PUBLIC_BASE_URL:-http://localhost:10000/devstoreaccount1}"
+    ports:
+      - "8081:8081"
+
+  mvc:
+    build: ./src/RaceDay.Mvc
+    depends_on:
+      - api
+    environment:
+      ASPNETCORE_URLS: "http://+:8080"
+      ApiSettings__BaseUrl: "http://api:8081/"
+    ports:
+      - "8080:8080"
+
+volumes:
+  sqldata:
+  azuritedata:
