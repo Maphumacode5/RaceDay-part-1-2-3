@@ -66,3 +66,19 @@ Legend for **Role Required**: `None` = public, `Any` = any authenticated user, `
 - All routes are prefixed `/api/` and use JSON request/response bodies (except image uploads, which use `multipart/form-data`).
 - `Organiser` and `Participant` role checks are enforced server-side against the session, never trusted from the client.
 - This plan will be implemented as closely as possible in Part 2; any deviation will be explained in that part's README.
+
+---
+
+## Part 3 additions and clarifications
+
+These changes were made while building the MVC front end and adding Azure Blob Storage. They are listed here so the implemented API can still be matched against this plan.
+
+| HTTP method | Route | Description | Role required | Request body | Expected response |
+|---|---|---|---|---|---|
+| GET | /api/event-types | Lists the event types (Run, Walk, Cycle) so the MVC event form can build its drop-down. **New in Part 3.** | None (public) | None | 200 OK - list of `{ eventTypeId, typeName }` |
+| POST | /api/events/{id}/banner | Uploads or replaces an event banner in **Azure Blob Storage** and saves its URL. | Organiser (owner) | multipart/form-data: `image` | 200 OK - `{ message, bannerImageUrl }`; 400 Bad Request - missing, too large (over 5 MB), wrong type or not a real image; 403 Forbidden - not the owner; 404 Not Found - no such event; 503 Service Unavailable - storage not configured |
+| PUT | /api/users/me/profile-picture | Uploads or replaces the caller's profile picture in **Azure Blob Storage** and saves its URL. | Any (logged in) | multipart/form-data: `image` | 200 OK - `{ message, profilePictureUrl }`; 400 Bad Request - invalid image; 401 Unauthorized - no session; 503 Service Unavailable - storage not configured |
+| DELETE | /api/events/{id} | *(behaviour clarified)* Deletes an event. | Organiser (owner) | None | 204 No Content; 403 Forbidden; 404 Not Found; **409 Conflict - the event already has enrolments** |
+| DELETE | /api/categories/{id} | *(behaviour clarified)* Removes a category. | Organiser (owner) | None | 204 No Content; 403 Forbidden; 404 Not Found; **409 Conflict - participants have already enrolled in it** |
+
+Why: the Part 1 database uses `ON DELETE RESTRICT` for enrolments, so deleting referenced rows used to surface as an unhandled 500. A 409 with a clear message lets the MVC site explain the problem to the Organiser.
